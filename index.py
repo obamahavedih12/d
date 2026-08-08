@@ -5,7 +5,7 @@ import time
 import os
 from discord.ext import commands
 
-TOKEN = os.getenv("DISCORD_TOKEN", "MTUxODk4NzA2Mzk3NjkxOTI2Mw.GHtooq.RsGsxkSaQaUjca_YZ6PEAxhGs1go9qVAbbXUUc")
+TOKEN = os.getenv("DISCORD_TOKEN", "MTUxODk4NzA2Mzk3NjkxOTI2Mw.GEmwBs.tc7LpDRNMxtrizDkxUDknahE6u8zlJAJa5zySA")
 SERVER_ID = 1513571358292971550
 STATUS_CHANNEL = 1513571359953780767
 CHAT_CHANNEL = 1513571360989905094
@@ -116,8 +116,15 @@ def get_status():
         return None
 
 def get_response(status):
-    pool = UP_RESPONSES if status == "up" else DOWN_RESPONSES if status == "down" else ERROR_RESPONSES
-    used_key = "down" if status == "down" else "up" if status == "up" else "error"
+    if status == "up":
+        pool = UP_RESPONSES
+        used_key = "up"
+    elif status == "down":
+        pool = DOWN_RESPONSES
+        used_key = "down"
+    else:
+        pool = ERROR_RESPONSES
+        used_key = "error"
     
     available = [r for r in pool if r not in response_history.get(used_key, [])]
     if not available:
@@ -181,10 +188,14 @@ async def on_message(message):
     # ====== ETA TRIGGER ======
     if any(trigger in content for trigger in ETA_TRIGGERS):
         await message.channel.send(random.choice([
-            "no eta yet. devs working.", "devs haven't given a time.",
-            "could be minutes. could be hours.", "check back later. no eta.",
-            "devs are silent on eta.", "unknown. watch the status channel.",
-            "soon™ as always.", "when it's ready.",
+            "no eta yet. devs working.",
+            "devs haven't given a time.",
+            "could be minutes. could be hours.",
+            "check back later. no eta.",
+            "devs are silent on eta.",
+            "unknown. watch the status channel.",
+            "soon™ as always.",
+            "when it's ready.",
             "devs will announce when fixed."
         ]))
         try:
