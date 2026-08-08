@@ -1,4 +1,4 @@
-discord.py-self==2.4.0
+discord.py-self==2.0.1
 aiohttp==3.9.0
 async-timeout==4.0.3
 typing-extensions==4.9.0
