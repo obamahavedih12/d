@@ -6,12 +6,17 @@ import os
 from discord.ext import commands
 from datetime import datetime, timedelta
 
-TOKEN = os.getenv("DISCORD_TOKEN", "MTUxODk4NzA2Mzk3NjkxOTI2Mw.Gxp4N9.Q6wsTxNc4HOCQAcVW7knAM-Yg80u1SjdHjTvrg")
-TRIGGER_CHANNEL = 1513571358292971550
-STATUS_CHANNEL = 1513571359953780767
-QUESTION_CHANNEL = 1513571360989905094
+TOKEN = os.getenv("DISCORD_TOKEN")
+TRIGGER_CHANNEL = int(os.getenv("TRIGGER_CHANNEL", "1513571358292971550"))
+STATUS_CHANNEL = int(os.getenv("STATUS_CHANNEL", "1513571359953780767"))
+QUESTION_CHANNEL = int(os.getenv("QUESTION_CHANNEL", "1513571360989905094"))
 
-bot = commands.Bot(command_prefix="!", self_bot=True, help_command=None)
+# ====== FIX: Add intents ======
+intents = discord.Intents.default()
+intents.message_content = True
+intents.messages = True
+
+bot = commands.Bot(command_prefix="!", self_bot=True, help_command=None, intents=intents)
 
 status_cache = {"value": None, "timestamp": 0, "last_up": None, "last_down": None}
 response_history = {"up": [], "down": [], "error": []}
@@ -19,7 +24,6 @@ user_cooldown = {}
 message_counter = {}
 
 # ====== MASSIVE RESPONSE POOLS ======
-
 UP_RESPONSES = [
     "up. smooth sailing.",
     "up. all green, nexomia live.",
@@ -159,23 +163,24 @@ def get_status():
         channel = bot.get_channel(STATUS_CHANNEL)
         if not channel:
             return None
+        
         async def fetch():
-            last_up = None
-            last_down = None
             async for msg in channel.history(limit=20):
                 content = msg.content.lower()
-                if "up" in content and not "down" in content:
+                if "up" in content and "down" not in content:
                     status_cache["last_up"] = msg.created_at
                     return "up"
-                if "down" in content and not "up" in content:
+                if "down" in content and "up" not in content:
                     status_cache["last_down"] = msg.created_at
                     return "down"
             return None
+        
         status = asyncio.run_coroutine_threadsafe(fetch(), bot.loop).result()
         status_cache["value"] = status
         status_cache["timestamp"] = now
         return status
-    except:
+    except Exception as e:
+        print(f"Status fetch error: {e}")
         return None
 
 def get_response(status, trigger_type="status"):
@@ -186,7 +191,6 @@ def get_response(status, trigger_type="status"):
     else:
         pool = ERROR_RESPONSES
     
-    # Filter out recent responses
     used_key = "down" if status == "down" else "up"
     available = [r for r in pool if r not in response_history.get(used_key, [])]
     if not available:
@@ -198,7 +202,6 @@ def get_response(status, trigger_type="status"):
     if len(response_history[used_key]) > 15:
         response_history[used_key] = response_history[used_key][-10:]
     
-    # Add conversational tag sometimes
     if random.random() > 0.6:
         conv = random.choice(CONVERSATIONAL)
         chosen = f"{chosen} {conv}"
@@ -230,26 +233,24 @@ def get_eta_response():
         "devs will announce when fixed."
     ])
 
-def get_mention(message):
-    if message.mentions:
-        return f"<@{message.author.id}>"
-    return ""
-
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
-    print(f"Monitoring: {TRIGGER_CHANNEL}, {QUESTION_CHANNEL}")
-    print(f"Status channel: {STATUS_CHANNEL}")
+    print(f"✅ Logged in as {bot.user}")
+    print(f"📡 Monitoring: {TRIGGER_CHANNEL}, {QUESTION_CHANNEL}")
+    print(f"📊 Status channel: {STATUS_CHANNEL}")
+    print(f"🟢 Bot is ready and listening!")
 
 @bot.event
 async def on_message(message):
+    # Debug: print every message received
+    print(f"📨 Message from {message.author}: {message.content[:50]}")
+    
     if message.author == bot.user:
         return
     
     if message.content.startswith("!"):
         return
     
-    # Track message count per user for variety
     user_id = message.author.id
     message_counter[user_id] = message_counter.get(user_id, 0) + 1
     
@@ -257,12 +258,10 @@ async def on_message(message):
     
     # ====== ROBLOX VERSION TRIGGER ======
     if any(trigger in content for trigger in ROBLOX_TRIGGERS):
-        if message.channel.id == QUESTION_CHANNEL or message.channel.id == TRIGGER_CHANNEL:
-            # Treat as down status
+        if message.channel.id in [QUESTION_CHANNEL, TRIGGER_CHANNEL]:
+            print("🔴 Roblox trigger detected!")
             roblox_response = get_roblox_response()
-            mention = get_mention(message)
-            full_response = f"{mention} {roblox_response}" if mention else roblox_response
-            await message.channel.send(full_response)
+            await message.channel.send(roblox_response)
             await asyncio.sleep(0.5)
             try:
                 await message.add_reaction(random.choice(["✅", "👍", "💀", "🔥"]))
@@ -272,11 +271,10 @@ async def on_message(message):
     
     # ====== ETA / WHEN BACK TRIGGER ======
     if any(trigger in content for trigger in CONVERSATIONAL_TRIGGERS):
-        if message.channel.id == QUESTION_CHANNEL or message.channel.id == TRIGGER_CHANNEL:
+        if message.channel.id in [QUESTION_CHANNEL, TRIGGER_CHANNEL]:
+            print("⏳ ETA trigger detected!")
             eta_response = get_eta_response()
-            mention = get_mention(message)
-            full_response = f"{mention} {eta_response}" if mention else eta_response
-            await message.channel.send(full_response)
+            await message.channel.send(eta_response)
             try:
                 await message.add_reaction("⏳")
             except:
@@ -286,61 +284,53 @@ async def on_message(message):
     # ====== MAIN NEXOMIA STATUS TRIGGER ======
     if message.channel.id in [QUESTION_CHANNEL, TRIGGER_CHANNEL]:
         if any(phrase in content for phrase in ["nexomia", "nexus", "up?", "working?", "is it up", "status", "what's the status"]):
+            print("🟢 Nexomia status trigger detected!")
             
-            # Cooldown per user
             now = time.time()
             if user_id in user_cooldown and now - user_cooldown[user_id] < 25:
+                print(f"⏱️ Cooldown for user {user_id}")
                 return
             user_cooldown[user_id] = now
             
             status = get_status()
+            print(f"📊 Status fetched: {status}")
             
-            # Custom response for Roblox version if status is down
             if status == "down":
-                # Sometimes mention roblox version specifically
-                if random.random() > 0.4 and any(r in content for r in ["roblox", "client", "version"]):
-                    response = get_roblox_response()
-                else:
-                    response = get_response(status)
+                response = get_response(status)
             elif status == "up":
                 response = get_response(status)
             else:
                 response = random.choice(ERROR_RESPONSES)
             
-            mention = get_mention(message)
-            
-            # Add conversation starter if multiple interactions
             if message_counter.get(user_id, 0) > 5 and random.random() > 0.7:
                 conv = random.choice(CONVERSATIONAL)
                 response = f"{response} {conv}"
             
-            if mention:
-                full_response = f"{mention} {response}"
-            else:
-                full_response = response
-            
-            # Add prefix variety
             prefixes = ["hey ", "yo ", "just fyi ", "quick update: ", "checkin: ", ""]
             if random.random() > 0.5:
-                full_response = random.choice(prefixes) + full_response
+                response = random.choice(prefixes) + response
             
-            await message.channel.send(full_response)
+            await message.channel.send(response)
             await asyncio.sleep(0.5)
             try:
                 await message.add_reaction(random.choice(["✅", "👍", "👀", "🔥", "💀", "⏳"]))
             except:
                 pass
 
-# ====== 24/7 KEEP ALIVE ======
 async def keep_alive():
     while True:
-        await asyncio.sleep(300)  # 5 minutes
-        # Refresh status cache periodically
+        await asyncio.sleep(300)
         status_cache["timestamp"] = 0
-        print("Status cache refreshed")
+        print("🔄 Status cache refreshed")
 
 @bot.event
 async def on_connect():
+    print("🔌 Bot connected to Discord!")
     bot.loop.create_task(keep_alive())
 
+if not TOKEN:
+    print("❌ ERROR: DISCORD_TOKEN not set")
+    exit(1)
+
+print("🚀 Starting bot...")
 bot.run(TOKEN, bot=False)
